@@ -14,8 +14,13 @@ def process_train_file(filename="./data/v1.0_sample_nq-train-sample.jsonl.gz"):
             candidate_strs = []
             question_str = " ".join(json_example["question_tokens"])
             candidate_index = json_example["annotations"][0]['long_answer']['candidate_index']
-            candidates = [long_answer_candidates.pop(candidate_index)]
-            candidates.extend(np.random.choice(long_answer_candidates, min(9, len(long_answer_candidates)), replace=False))
+            if candidate_index == -1: # long answer does not exist
+                candidates = np.random.choice(long_answer_candidates, min(10, len(long_answer_candidates)), replace=False)
+                long_answer_indices=[]
+            else:
+                candidates = [long_answer_candidates.pop(candidate_index)]
+                candidates.extend(np.random.choice(long_answer_candidates, min(9, len(long_answer_candidates)), replace=False))
+                long_answer_indices=[0]
             for candidate in candidates:
                 candidate_tokens = json_example["document_tokens"][
                     candidate["start_token"]:candidate["end_token"]]
@@ -25,7 +30,7 @@ def process_train_file(filename="./data/v1.0_sample_nq-train-sample.jsonl.gz"):
             examples.append({
                 "context": candidate_strs,
                 "question": [question_str],
-                "long_answer_indices": [0]
+                "long_answer_indices": long_answer_indices
             })
         print("{} questions in total, {} candidates".format(len(examples), sum(len(e['context']) for e in examples)))
     return examples
