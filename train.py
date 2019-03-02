@@ -65,6 +65,7 @@ def main():
 
     model = BertForQuestionAnswering.from_pretrained(args.bert_model,
                 cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
+    logger.info(model.config)
     model.to(device)
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(model)

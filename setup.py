@@ -1,9 +1,37 @@
 import gzip
+import glob
+import os
+import multiprocessing
 import json
 import numpy as np
 from tqdm import tqdm
 from pytorch_pretrained_bert.tokenization import BertTokenizer
 import pickle
+from functools import partial
+from util import get_logger
+import argparse
+
+logger = get_logger('.', 'setup')
+
+def get_setup_args():
+    parser = argparse.ArgumentParser()
+
+    # Required parameters
+    parser.add_argument("--bert_model", default="bert-base-uncased", type=str,
+                        help="Bert pre-trained model selected in the list: bert-base-uncased, "
+                        "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
+                        "bert-base-multilingual-cased, bert-base-chinese.")
+    parser.add_argument("--do_lower_case", default=True, type=bool,
+                        help="convert text to lower case, True if using BERT uncased")
+    parser.add_argument("--output_dir", default=None, type=str, required=True,
+                        help="The output directory where the processed examples and features will be written.")
+    parser.add_argument("--input_path", default=None, type=str, required=True,
+                        help="The natural questions dataset directory, e.g. ./data/natural_questions/v1.0/train/*.jsonl.gz")
+    parser.add_argument("--n_threads", default=8, type=int, help="The number of threads for processing.")
+    parser.add_argument('--max_seq_length', type=int, default=512, help="max feature length")
+    parser.add_argument('--max_query_length', type=int, default=30, help="max query length")
+    args = parser.parse_args()
+    return args
 
 class NQExample(object):
     """
@@ -233,17 +261,32 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_
 
 def save(filename, obj, message=None):
     if message is not None:
-        print("Saving {}...".format(message))
+        logger.info("Saving {}...".format(message))
         with open(filename, "wb") as fh:
             pickle.dump(obj, fh)
 
+def process_one_split(tokenizer, args, input_path):
+    examples = read_nq_train_examples(input_path)
+    prefix = os.path.basename(input_path).split('.jsonl')[0]
+    file_name = os.path.join(args.output_dir, '{}.example'.format(prefix))
+    save(file_name, examples, 'examples from {} to {}'.format(input_path, file_name))
+    features = convert_examples_to_features(examples, tokenizer, args.max_seq_length, args.max_query_length)
+    return features
+
 def main():
-    examples = read_nq_train_examples("./data/natural_questions/v1.0/train/nq-train-01.jsonl.gz")
-    # examples = read_nq_train_examples("./data/v1.0_sample_nq-train-sample.jsonl.gz")
-    save('./data/preprocessed/nq-train-01-examples', examples, 'train data examples')
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True)
-    features = convert_examples_to_features(examples, tokenizer, 512)
-    save('./data/preprocessed/nq-train-01-features', features, 'train data features')
+    args = get_setup_args()
+    logger.info(args)
+    tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
+    input_paths = glob.glob(args.input_path)
+    pool = multiprocessing.Pool(args.n_threads)
+    process = partial(process_one_split, tokenizer, args)
+    try:
+        features = pool.map(process, input_paths)
+    finally:
+        pool.close()
+        pool.join()
+    features = map(list.__add__, features)
+    save(os.path.join(args.output_dir, 'nq-features-{}-{}'.format(args.max_seq_length, args.max_query_length)), features, 'train data features')
 
 if __name__ == '__main__':
     main()
