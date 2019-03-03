@@ -142,7 +142,7 @@ def read_nq_train_examples(filename):
                         start_position=short_answer["start_token"]-long_answer["start_token"],
                         end_position=short_answer["end_token"]-long_answer["start_token"]))
                 else:
-                    examples.append(NQExample(example_id, candidate_index, question_text, candidate_tokens, has_answer=True))
+                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, has_answer=True))
                 indexes = np.random.choice(range(num_candidates-1), min(9, num_candidates-1), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
@@ -285,7 +285,7 @@ def main():
     finally:
         pool.close()
         pool.join()
-    features = map(list.__add__, features)
+    features = [feature for split in features for feature in split]
     save(os.path.join(args.output_dir, 'nq-features-{}-{}'.format(args.max_seq_length, args.max_query_length)), features, 'train data features')
 
 if __name__ == '__main__':
