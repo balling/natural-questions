@@ -21,6 +21,8 @@ def get_setup_args():
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
                         "bert-large-uncased, bert-base-cased, bert-large-cased, bert-base-multilingual-uncased, "
                         "bert-base-multilingual-cased, bert-base-chinese.")
+    parser.add_argument("--is_eval", default=False, type=bool,
+                        help="whether to downsample the candidates")
     parser.add_argument("--do_lower_case", default=True, type=bool,
                         help="convert text to lower case, True if using BERT uncased")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
@@ -48,6 +50,8 @@ class NQExample(object):
                  candidate_id,
                  question_text,
                  doc_tokens,
+                 original_start,
+                 original_end,
                  has_answer=False,
                  start_position=-1,
                  end_position=-1,
@@ -56,6 +60,8 @@ class NQExample(object):
         self.candidate_id = candidate_id
         self.question_text = question_text
         self.doc_tokens = doc_tokens
+        self.original_start = original_start
+        self.original_end = original_end
         self.has_answer = has_answer
         self.start_position = start_position
         self.end_position = end_position
@@ -84,7 +90,10 @@ class NQExample(object):
 class InputFeatures(object):
     """A single set of features of data."""
     def __init__(self,
-                 id,
+                 example_id,
+                 candidate_id,
+                 original_start,
+                 original_end,
                  tokens,
                  token_to_orig_map,
                  input_ids,
@@ -92,7 +101,10 @@ class InputFeatures(object):
                  segment_ids,
                  start_position=None,
                  end_position=None):
-        self.id = id
+        self.example_id = example_id
+        self.candidate_id = candidate_id
+        self.original_start = original_start
+        self.original_end = original_end
         self.tokens = tokens
         self.token_to_orig_map = token_to_orig_map
         self.input_ids = input_ids
@@ -119,7 +131,7 @@ def read_nq_train_examples(filename):
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
                     candidate_tokens = json_example["document_tokens"][candidate["start_token"]:candidate["end_token"]]
-                    examples.append(NQExample(example_id, idx, question_text, candidate_tokens))
+                    examples.append(NQExample(example_id, idx, question_text, candidate_tokens, candidate["start_token"], candidate["end_token"]))
             else:
                 long_answer = long_answer_candidates.pop(candidate_index)
                 long_answer_tokens = json_example["document_tokens"][long_answer["start_token"]:long_answer["end_token"]]
@@ -128,6 +140,8 @@ def read_nq_train_examples(filename):
                         candidate_index,
                         question_text,
                         long_answer_tokens,
+                        candidate["start_token"],
+                        candidate["end_token"],
                         has_answer=True,
                         start_position=-1,
                         end_position=-1,
@@ -138,18 +152,34 @@ def read_nq_train_examples(filename):
                         candidate_index,
                         question_text,
                         long_answer_tokens,
+                        candidate["start_token"],
+                        candidate["end_token"],
                         has_answer=True,
                         start_position=short_answer["start_token"]-long_answer["start_token"],
                         end_position=short_answer["end_token"]-long_answer["start_token"]))
                 else:
-                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, has_answer=True))
+                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, candidate["start_token"], candidate["end_token"], has_answer=True))
                 indexes = np.random.choice(range(num_candidates-1), min(9, num_candidates-1), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
                     candidate_tokens = json_example["document_tokens"][candidate["start_token"]:candidate["end_token"]]
                     if idx >= candidate_index:
                         idx += 1
-                    examples.append(NQExample(example_id, idx, question_text, candidate_tokens))
+                    examples.append(NQExample(example_id, idx, question_text, candidate_tokens, candidate["start_token"], candidate["end_token"]))
+    return examples
+
+def read_nq_eval_examples(filename):
+    """Read a natural question jsonl file into a list of NQExample."""
+    examples = []
+    with open(filename, "br") as fileobj:
+        zip_file = gzip.GzipFile(fileobj=fileobj)
+        for line in zip_file:
+            json_example = json.loads(line)
+            example_id = json_example["example_id"]
+            question_text = json_example["question_text"]
+            for idx, candidate in enumerate(json_example["long_answer_candidates"]):
+                candidate_tokens = json_example["document_tokens"][candidate["start_token"]:candidate["end_token"]]
+                examples.append(NQExample(example_id, idx, question_text, candidate_tokens, candidate["start_token"], candidate["end_token"]))
     return examples
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_length=30):
@@ -249,7 +279,10 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_
                 end_position = max_seq_length-1
         features.append(
             InputFeatures(
-                id= "%s-%s" % (example.example_id, example.candidate_id),
+                example_id=example.example_id,
+                candidate_id=example.candidate_id,
+                original_start=example.original_start,
+                original_end=example.original_end,
                 tokens=tokens,
                 token_to_orig_map=token_to_orig_map,
                 input_ids=input_ids,
@@ -266,7 +299,10 @@ def save(filename, obj, message=None):
             pickle.dump(obj, fh)
 
 def process_one_split(tokenizer, args, input_path):
-    examples = read_nq_train_examples(input_path)
+    if args.is_eval:
+        examples = read_nq_eval_examples(input_path)
+    else:
+        examples = read_nq_train_examples(input_path)
     prefix = os.path.basename(input_path).split('.jsonl')[0]
     file_name = os.path.join(args.output_dir, '{}.example'.format(prefix))
     save(file_name, examples, 'examples from {} to {}'.format(input_path, file_name))
@@ -286,7 +322,8 @@ def main():
         pool.close()
         pool.join()
     features = [feature for split in features for feature in split]
-    save(os.path.join(args.output_dir, 'nq-features-{}-{}'.format(args.max_seq_length, args.max_query_length)), features, 'train data features')
+    dataset = 'eval' if args.is_eval else 'train'
+    save(os.path.join(args.output_dir, 'nq-{}-features-{}-{}'.format(dataset, args.max_seq_length, args.max_query_length)), features, '{} data features'.format(dataset))
 
 if __name__ == '__main__':
     main()
