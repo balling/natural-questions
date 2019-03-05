@@ -11,7 +11,7 @@ import collections
 from tqdm import tqdm, trange
 from torch.utils.data import (DataLoader, SequentialSampler, TensorDataset)
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling import BertForQuestionAnswering
+from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.optimization import BertAdam
 
 from setup import InputFeatures
@@ -145,6 +145,7 @@ def get_train_args():
                         help="The output directory where the model checkpoints and predictions will be written.")
     parser.add_argument("--predict_file", default='./data/preprocessed/nq-eval-features-512-30', type=str, help="Preprocessed train feature pickle files.")
     parser.add_argument("--load_path", default=None, type=str, help="Torch checkpoint to load from")
+    parser.add_argument("--load_squad_path", default=None, type=str, help="SQuAD pytorch model dir to load from")
 
     parser.add_argument("--n_best_size", default=6, type=int, help="number of candidates to consider during evaluation")
     parser.add_argument("--train_batch_size", default=6, type=int, help="Total batch size for training.")
@@ -183,8 +184,15 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
-    model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-                cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
+    if args.load_squad_path:
+        output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
+        output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
+        config = BertConfig(output_config_file)
+        model = BertForQuestionAnswering(config)
+        model.load_state_dict(torch.load(output_model_file))
+    else:
+        model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+                    cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
     logger.info(model.config)
     model.to(device)
     if len(gpu_ids) > 1:
