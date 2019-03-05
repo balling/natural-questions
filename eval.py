@@ -95,6 +95,8 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
             if has_short:
                 short_start = feature.original_start+feature.token_to_orig_map[pred.start_index]
                 short_end = feature.original_start+feature.token_to_orig_map[pred.end_index]
+                if short_end == short_start:
+                    short_end+=1
                 predictions.append({
                     'example_id': example_index,
                     'long_answer': {
