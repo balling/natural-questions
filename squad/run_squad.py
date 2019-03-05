@@ -895,6 +895,7 @@ def main():
     # Prepare model
     model = BertForQuestionAnswering.from_pretrained(args.bert_model,
                 cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(args.local_rank)))
+    model.bert.embeddings.requires_grad = False
 
     if args.fp16:
         model.half()
