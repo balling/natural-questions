@@ -775,6 +775,7 @@ def main():
                         help="The output directory where the model checkpoints and predictions will be written.")
 
     ## Other parameters
+    parser.add_argument("--load_path", default=None, type=str, help="directory with previously saved SQuAD model. E.g., ./out/")
     parser.add_argument("--train_file", default=None, type=str, help="SQuAD json for training. E.g., train-v1.1.json")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="SQuAD json for predictions. E.g., dev-v1.1.json or test-v1.1.json")
@@ -893,9 +894,16 @@ def main():
             num_train_optimization_steps = num_train_optimization_steps // torch.distributed.get_world_size()
 
     # Prepare model
-    model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-                cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(args.local_rank)))
-    model.bert.embeddings.requires_grad = False
+    if args.load_path:
+        output_model_file = os.path.join(args.load_path, WEIGHTS_NAME)
+        output_config_file = os.path.join(args.load_path, CONFIG_NAME)
+        config = BertConfig(output_config_file)
+        model = BertForQuestionAnswering(config)
+        model.load_state_dict(torch.load(output_model_file))
+    else:
+        model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+                    cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(args.local_rank)))
+    # model.bert.embeddings.requires_grad = False
 
     if args.fp16:
         model.half()
@@ -1022,7 +1030,7 @@ def main():
         config = BertConfig(output_config_file)
         model = BertForQuestionAnswering(config)
         model.load_state_dict(torch.load(output_model_file))
-    else:
+    elif not args.load_path:
         model = BertForQuestionAnswering.from_pretrained(args.bert_model)
 
     model.to(device)
