@@ -7,7 +7,7 @@ import pickle
 import logging
 from tqdm import tqdm, trange
 from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.modeling import BertForQuestionAnswering
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
 
@@ -27,6 +27,7 @@ def get_train_args():
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints and predictions will be written.")
     parser.add_argument("--train_file", default='./data/preprocessed/nq-train-01-features', type=str, help="Preprocessed train feature pickle files.")
+    parser.add_argument("--load_path", default=None, type=str, help="pytorch model dir to load from")
 
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
@@ -75,8 +76,15 @@ def main():
         device, len(gpu_ids), args.fp16))
     args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
-    model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-                cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
+    if args.load_squad_path:
+        output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
+        output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
+        config = BertConfig(output_config_file)
+        model = BertForQuestionAnswering(config)
+        model.load_state_dict(torch.load(output_model_file))
+    else:
+        model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+                    cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
     logger.info(model.config)
 
     if args.fp16:
@@ -165,12 +173,13 @@ def main():
                     optimizer.zero_grad()
                     global_step += 1
     
-    ckpt_dict = {
-        'model_name': model.__class__.__name__,
-        'model_state': model.cpu().state_dict(),
-        'step': global_step
-    }
-    torch.save(ckpt_dict, './tmp/step_{}.pth.tar'.format(global_step))
+    # Save a trained model and the associated configuration
+    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+    output_model_file = os.path.join(args.output_dir, WEIGHTS_NAME)
+    torch.save(model_to_save.state_dict(), output_model_file)
+    output_config_file = os.path.join(args.output_dir, CONFIG_NAME)
+    with open(output_config_file, 'w') as f:
+        f.write(model_to_save.config.to_json_string())
 
 if __name__ == "__main__":
     main()
