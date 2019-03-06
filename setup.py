@@ -140,8 +140,8 @@ def read_nq_train_examples(filename):
                         candidate_index,
                         question_text,
                         long_answer_tokens,
-                        candidate["start_token"],
-                        candidate["end_token"],
+                        long_answer["start_token"],
+                        long_answer["end_token"],
                         has_answer=True,
                         start_position=-1,
                         end_position=-1,
@@ -152,13 +152,13 @@ def read_nq_train_examples(filename):
                         candidate_index,
                         question_text,
                         long_answer_tokens,
-                        candidate["start_token"],
-                        candidate["end_token"],
+                        long_answer["start_token"],
+                        long_answer["end_token"],
                         has_answer=True,
                         start_position=short_answer["start_token"]-long_answer["start_token"],
                         end_position=short_answer["end_token"]-long_answer["start_token"]))
                 else:
-                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, candidate["start_token"], candidate["end_token"], has_answer=True))
+                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, long_answer["start_token"], long_answer["end_token"], has_answer=True))
                 indexes = np.random.choice(range(num_candidates-1), min(9, num_candidates-1), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
