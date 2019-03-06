@@ -37,7 +37,7 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
 
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
         "PrelimPrediction",
-        ["feature_index", "start_index", "end_index", "start_logit", "end_logit"])
+        ["feature_index", "start_index", "end_index", "score"])
 
     predictions = []
 
@@ -60,18 +60,18 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
                         continue
                     if end_index not in feature.token_to_orig_map and end_index-1 not in feature.token_to_orig_map: # can be right SEP
                         continue
-                    if end_index <= start_index: # cannot be equal for nq
+                    if end_index < start_index:
                         continue
                     prelim_predictions.append(
                         _PrelimPrediction(
                             feature_index=feature_index,
                             start_index=start_index,
                             end_index=end_index,
-                            start_logit=result.start_logits[start_index],
-                            end_logit=result.end_logits[end_index]))
+                            score=result.start_logits[start_index]+result.end_logits[end_index]\
+                                -result.start_logits[0]-result.end_logits[0]))
         prelim_predictions = sorted(
             prelim_predictions,
-            key=lambda x: (x.start_logit + x.end_logit),
+            key=lambda x: x.score,
             reverse=True)
         if not prelim_predictions: # if we don't produce any valid predictions
             predictions.append({
@@ -91,12 +91,10 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
             has_short = pred.start_index in feature.token_to_orig_map and pred.end_index in feature.token_to_orig_map #todo: might need further tweaking
             long_start = feature.original_start
             long_end = feature.original_end
-            score = pred.start_logit + pred.end_logit
+            score = pred.score
             if has_short:
                 short_start = feature.original_start+feature.token_to_orig_map[pred.start_index]
-                short_end = feature.original_start+feature.token_to_orig_map[pred.end_index]
-                if short_end == short_start:
-                    short_end+=1
+                short_end = feature.original_start+feature.token_to_orig_map[pred.end_index]+1
                 predictions.append({
                     'example_id': example_index,
                     'long_answer': {
