@@ -35,6 +35,14 @@ def get_train_args():
     parser.add_argument("--warmup_proportion", default=0.1, type=float,
                         help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%% "
                         "of training.")
+    parser.add_argument('--fp16',
+                        action='store_true',
+                        help="Whether to use 16-bit float precision instead of 32-bit")
+    parser.add_argument('--loss_scale',
+                        type=float, default=0,
+                        help="Loss scaling to improve fp16 numeric stability. Only used when fp16 set to True.\n"
+                             "0 (default value): dynamic loss scaling.\n"
+                             "Positive power of 2: static loss scaling value.\n")
 
     parser.add_argument('--seed',
                         type=int,
@@ -63,9 +71,16 @@ def main():
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
 
+    logger.info("device: {} n_gpu: {}, 16-bits training: {}".format(
+        device, len(gpu_ids), args.fp16))
+    args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
+
     model = BertForQuestionAnswering.from_pretrained(args.bert_model,
-                cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
+                cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
     logger.info(model.config)
+
+    if args.fp16:
+        model.half()
     model.to(device)
     if len(gpu_ids) > 1:
         model = torch.nn.DataParallel(model)
@@ -77,15 +92,36 @@ def main():
     
     # Prepare optimizer
     param_optimizer = list(model.named_parameters())
+    # hack to remove pooler, which is not used
+    # thus it produce None grad that break apex
+    param_optimizer = [n for n in param_optimizer if 'pooler' not in n[0]]
+
     no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
         {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
-    optimizer = BertAdam(optimizer_grouped_parameters,
+    if args.fp16:
+        try:
+            from apex.optimizers import FP16_Optimizer
+            from apex.optimizers import FusedAdam
+        except ImportError:
+            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+
+        optimizer = FusedAdam(optimizer_grouped_parameters,
+                              lr=args.learning_rate,
+                              bias_correction=False,
+                              max_grad_norm=1.0)
+        if args.loss_scale == 0:
+            optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
+        else:
+            optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
+    else:
+        optimizer = BertAdam(optimizer_grouped_parameters,
                              lr=args.learning_rate,
                              warmup=args.warmup_proportion,
                              t_total=num_train_optimization_steps)
+    
     global_step = 0
     logger.info("***** Running training *****")
     logger.info("  Num examples = %d", len(train_features))
@@ -104,18 +140,31 @@ def main():
     model.train()
     for _ in trange(int(args.num_train_epochs), desc="Epoch"):
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-            batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-            input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
-            loss = loss.mean()
-            logger.info(loss)
-            if args.gradient_accumulation_steps > 1:
-                loss = loss / args.gradient_accumulation_steps
-            loss.backward()
-            if (step + 1) % args.gradient_accumulation_steps == 0:
-                optimizer.step()
-                optimizer.zero_grad()
-                global_step += 1
+                if n_gpu == 1:
+                    batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
+                input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+                loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+                if n_gpu > 1:
+                    loss = loss.mean() # mean() to average on multi-gpu.
+                if args.gradient_accumulation_steps > 1:
+                    loss = loss / args.gradient_accumulation_steps
+
+                logger.info(loss)
+                if args.fp16:
+                    optimizer.backward(loss)
+                else:
+                    loss.backward()
+                if (step + 1) % args.gradient_accumulation_steps == 0:
+                    if args.fp16:
+                        # modify learning rate with special warm up BERT uses
+                        # if args.fp16 is False, BertAdam is used and handles this automatically
+                        lr_this_step = args.learning_rate * warmup_linear(global_step/num_train_optimization_steps, args.warmup_proportion)
+                        for param_group in optimizer.param_groups:
+                            param_group['lr'] = lr_this_step
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    global_step += 1
+    
     ckpt_dict = {
         'model_name': model.__class__.__name__,
         'model_state': model.cpu().state_dict(),
