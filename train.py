@@ -76,9 +76,9 @@ def main():
         device, len(gpu_ids), args.fp16))
     args.train_batch_size = args.train_batch_size // args.gradient_accumulation_steps
 
-    if args.load_squad_path:
-        output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
-        output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
+    if args.load_path:
+        output_model_file = os.path.join(args.load_path, WEIGHTS_NAME)
+        output_config_file = os.path.join(args.load_path, CONFIG_NAME)
         config = BertConfig(output_config_file)
         model = BertForQuestionAnswering(config)
         model.load_state_dict(torch.load(output_model_file))
