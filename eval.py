@@ -11,10 +11,11 @@ import collections
 from tqdm import tqdm, trange
 from torch.utils.data import (DataLoader, SequentialSampler, TensorDataset)
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+from pytorch_pretrained_bert.modeling import BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.optimization import BertAdam
 
 from setup import InputFeatures
+from model import BertForNQ
 import util
 
 logger = util.get_logger('./tmp/', __name__)
@@ -188,10 +189,10 @@ def main():
         output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
         output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
         config = BertConfig(output_config_file)
-        model = BertForQuestionAnswering(config)
-        model.load_state_dict(torch.load(output_model_file))
+        model = BertForNQ(config)
+        model.load_state_dict(torch.load(output_model_file, map_location='cpu'))
     else:
-        model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+        model = BertForNQ.from_pretrained(args.bert_model,
                     cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
     logger.info(model.config)
     model.to(device)
