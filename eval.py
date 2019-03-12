@@ -238,6 +238,8 @@ def main():
                                          candidate_id=eval_feature.candidate_id,
                                          start_logits=start_logits,
                                          end_logits=end_logits))
+    with open(os.path.join(args.output_dir, "all_results"), "wb") as file:
+        pickle.dump(all_results, file)
     output_prediction_file = os.path.join(args.output_dir, "predictions.json")
     write_predictions(eval_features, all_results, output_prediction_file, args.n_best_size)
 

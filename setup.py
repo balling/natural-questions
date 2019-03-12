@@ -39,10 +39,11 @@ class NQExample(object):
     """
     A single training example for the Natural Question dataset.
     The examples can either be:
-    1. No answer - has_answer=False, start and end position are -1, yes_no=None
-    2. Only long answer - has_answer=True, start and end position are -1, yes_no=None
-    3. Yes/No short answer - has_answer=True, start and end position are -1, yes_no=True/False
-    4. Short answer - has_answer=True, non -1 start and end position, yes_no=None
+    1. No answer - ans_type=0
+    2. Only long answer - ans_type=1
+    3. Yes short answer - ans_type=2
+    4. No short answer - ans_type=3
+    5. Short answer - ans_type=4, with start and end position
     """
 
     def __init__(self,
@@ -52,20 +53,18 @@ class NQExample(object):
                  doc_tokens,
                  original_start,
                  original_end,
-                 has_answer=False,
+                 ans_type=0,
                  start_position=-1,
-                 end_position=-1,
-                 yes_no=None):
+                 end_position=-1):
         self.example_id = example_id
         self.candidate_id = candidate_id
         self.question_text = question_text
         self.doc_tokens = doc_tokens
         self.original_start = original_start
         self.original_end = original_end
-        self.has_answer = has_answer
+        self.ans_type = ans_type
         self.start_position = start_position
         self.end_position = end_position
-        self.yes_no = yes_no
     
     def __str__(self):
         return self.__repr__()
@@ -76,15 +75,9 @@ class NQExample(object):
         s += ", question_text: %s" % (
             self.question_text)
         s += ", doc_tokens: [%s...]" % (" ".join(t["token"] for t in self.doc_tokens[:5]))
-        if not self.has_answer:
-            s += ", no answer"
-        else:
-            if self.yes_no is not None:
-                s += ", yes/no answer %s" % self.yes_no
-            elif self.start_position>=0:
-                s += ", short answer %d-%d" % (self.start_position, self.end_position)
-            else:
-                s += ", long answer"
+        s += ", {}".format(['no answer', 'long only', 'yes', 'no', 'short answer'])
+        if self.ans_type==4:
+            s += "%d-%d" % (self.start_position, self.end_position)
         return s
 
 class InputFeatures(object):
@@ -99,6 +92,7 @@ class InputFeatures(object):
                  input_ids,
                  input_mask,
                  segment_ids,
+                 ans_type,
                  start_position=None,
                  end_position=None):
         self.example_id = example_id
@@ -110,6 +104,7 @@ class InputFeatures(object):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
+        self.ans_type = ans_type
         self.start_position = start_position
         self.end_position = end_position
 
@@ -135,17 +130,22 @@ def read_nq_train_examples(filename):
             else:
                 long_answer = long_answer_candidates.pop(candidate_index)
                 long_answer_tokens = json_example["document_tokens"][long_answer["start_token"]:long_answer["end_token"]]
-                if annotation["yes_no_answer"] != "NONE":
+                if annotation["yes_no_answer"] == "YES":
                     examples.append(NQExample(example_id,
                         candidate_index,
                         question_text,
                         long_answer_tokens,
                         long_answer["start_token"],
                         long_answer["end_token"],
-                        has_answer=True,
-                        start_position=-1,
-                        end_position=-1,
-                        yes_no=annotation["yes_no_answer"]))
+                        ans_type=3))
+                elif annotation["yes_no_answer"] == "NO":
+                    examples.append(NQExample(example_id,
+                        candidate_index,
+                        question_text,
+                        long_answer_tokens,
+                        long_answer["start_token"],
+                        long_answer["end_token"],
+                        ans_type=4))
                 elif len(annotation["short_answers"])>0:
                     short_answer = annotation["short_answers"][0]
                     examples.append(NQExample(example_id,
@@ -154,11 +154,11 @@ def read_nq_train_examples(filename):
                         long_answer_tokens,
                         long_answer["start_token"],
                         long_answer["end_token"],
-                        has_answer=True,
+                        ans_type=4,
                         start_position=short_answer["start_token"]-long_answer["start_token"],
                         end_position=short_answer["end_token"]-long_answer["start_token"]))
                 else:
-                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, long_answer["start_token"], long_answer["end_token"], has_answer=True))
+                    examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, long_answer["start_token"], long_answer["end_token"], ans_type=2))
                 indexes = np.random.choice(range(num_candidates-1), min(9, num_candidates-1), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
@@ -207,26 +207,25 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_
 
         tok_start_position = None
         tok_end_position = None
-        if example.has_answer:
-            if example.yes_no == "YES":
-                # left [SEP]
-                tok_start_position = -1
-                tok_end_position = -1
-            elif example.yes_no == "NO":
-                # right [SEP]
-                tok_start_position = len(all_doc_tokens)
-                tok_end_position = len(all_doc_tokens)
-            elif example.start_position>-1:
-                # from left to right [SEP]
-                tok_start_position = -1
-                tok_end_position = len(all_doc_tokens)
+        if example.ans_type == 2:
+            # left [SEP]
+            tok_start_position = -1
+            tok_end_position = -1
+        elif example.ans_type == 3:
+            # right [SEP]
+            tok_start_position = len(all_doc_tokens)
+            tok_end_position = len(all_doc_tokens)
+        elif example.ans_type==1:
+            # from left to right [SEP]
+            tok_start_position = -1
+            tok_end_position = len(all_doc_tokens)
+        elif example.ans_type==4:
+            # actual short answer span
+            tok_start_position = orig_to_tok_index[example.start_position]
+            if example.end_position < len(example.doc_tokens) - 1:
+                tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
             else:
-                # actual short answer span
-                tok_start_position = orig_to_tok_index[example.start_position]
-                if example.end_position < len(example.doc_tokens) - 1:
-                    tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
-                else:
-                    tok_end_position = len(all_doc_tokens) - 1
+                tok_end_position = len(all_doc_tokens) - 1
 
         # The -3 accounts for [CLS], [SEP] and [SEP]
         max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
@@ -288,6 +287,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_
                 input_ids=input_ids,
                 input_mask=input_mask,
                 segment_ids=segment_ids,
+                ans_type=example.ans_type,
                 start_position=start_position,
                 end_position=end_position))
     return features

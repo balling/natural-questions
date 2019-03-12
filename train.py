@@ -8,11 +8,12 @@ import logging
 from tqdm import tqdm, trange
 from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+from pytorch_pretrained_bert.modeling import BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
 from tensorboardX import SummaryWriter
 
 from setup import InputFeatures
+from model import BertForNQ
 import util
 
 logger = util.get_logger('./tmp/', __name__)
@@ -83,10 +84,10 @@ def main():
         output_model_file = os.path.join(args.load_path, WEIGHTS_NAME)
         output_config_file = os.path.join(args.load_path, CONFIG_NAME)
         config = BertConfig(output_config_file)
-        model = BertForQuestionAnswering(config)
+        model = BertForNQ(config)
         model.load_state_dict(torch.load(output_model_file))
     else:
-        model = BertForQuestionAnswering.from_pretrained(args.bert_model,
+        model = BertForNQ.from_pretrained(args.bert_model,
                     cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
     logger.info(model.config)
 
@@ -144,8 +145,9 @@ def main():
     all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
     all_start_positions = torch.tensor([f.start_position for f in train_features], dtype=torch.long)
     all_end_positions = torch.tensor([f.end_position for f in train_features], dtype=torch.long)
+    all_ans_types = torch.tensor([f.ans_type for f in train_features], dtype=torch.long)
     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
-                            all_start_positions, all_end_positions)
+                            all_start_positions, all_end_positions, all_ans_types)
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
     model.train()
@@ -153,8 +155,8 @@ def main():
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
             if len(gpu_ids) == 1:
                 batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-            input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+            input_ids, input_mask, segment_ids, start_positions, end_positions, ans_types = batch
+            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions, ans_types)
             if len(gpu_ids) > 1:
                 loss = loss.mean() # mean() to average on multi-gpu.
             if args.gradient_accumulation_steps > 1:

@@ -27,11 +27,11 @@ from absl import flags
 from absl import logging
 
 flags.DEFINE_integer(
-    'long_non_null_threshold', 2,
+    'long_non_null_threshold', 1,
     'Require this many non-null long answer annotations '
     'to count gold as containing a long answer.')
 flags.DEFINE_integer(
-    'short_non_null_threshold', 2,
+    'short_non_null_threshold', 1,
     'Require this many non-null short answer annotations '
     'to count gold as containing a short answer.')
 
