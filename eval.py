@@ -21,7 +21,7 @@ import util
 logger = util.get_logger('./tmp/', __name__)
 
 RawResult = collections.namedtuple("RawResult",
-                                   ["example_id", "candidate_id", "start_logits", "end_logits"])
+                                   ["example_id", "candidate_id", "start_logits", "end_logits", "type_logits"])
 
 
 def write_predictions(all_features, all_results, output_prediction_file, n_best_size):
@@ -234,11 +234,13 @@ def main():
         for i, example_index in enumerate(example_indices):
             start_logits = batch_start_logits[i].detach().cpu().tolist()
             end_logits = batch_end_logits[i].detach().cpu().tolist()
+            type_logits = batch_type_logits[i].detach().cpu().tolist()
             eval_feature = eval_features[example_index.item()]
             all_results.append(RawResult(example_id=eval_feature.example_id,
                                          candidate_id=eval_feature.candidate_id,
                                          start_logits=start_logits,
-                                         end_logits=end_logits))
+                                         end_logits=end_logits,
+                                         type_logits=type_logits))
     with open(os.path.join(args.output_dir, "all_results"), "wb") as file:
         pickle.dump(all_results, file)
     output_prediction_file = os.path.join(args.output_dir, "predictions.json")
