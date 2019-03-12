@@ -207,18 +207,18 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, max_query_
 
         tok_start_position = None
         tok_end_position = None
-        if example.ans_type == 2:
-            # left [SEP]
-            tok_start_position = -1
-            tok_end_position = -1
-        elif example.ans_type == 3:
-            # right [SEP]
-            tok_start_position = len(all_doc_tokens)
-            tok_end_position = len(all_doc_tokens)
-        elif example.ans_type==1:
+        if 1 <= example.ans_type <= 3:
+        #     # left [SEP]
+        #     tok_start_position = -1
+        #     tok_end_position = -1
+        # elif example.ans_type == 3:
+        #     # right [SEP]
+        #     tok_start_position = len(all_doc_tokens)
+        #     tok_end_position = len(all_doc_tokens)
+        # elif example.ans_type==1:
             # from left to right [SEP]
-            tok_start_position = -1
-            tok_end_position = len(all_doc_tokens)
+            tok_start_position = 0
+            tok_end_position = len(all_doc_tokens) - 1
         elif example.ans_type==4:
             # actual short answer span
             tok_start_position = orig_to_tok_index[example.start_position]
