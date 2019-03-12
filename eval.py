@@ -230,7 +230,7 @@ def main():
         input_mask = input_mask.to(device)
         segment_ids = segment_ids.to(device)
         with torch.no_grad():
-            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask)
+            batch_start_logits, batch_end_logits, batch_type_logits = model(input_ids, segment_ids, input_mask)
         for i, example_index in enumerate(example_indices):
             start_logits = batch_start_logits[i].detach().cpu().tolist()
             end_logits = batch_end_logits[i].detach().cpu().tolist()
