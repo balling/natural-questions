@@ -10,6 +10,7 @@ from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.modeling import BertForQuestionAnswering, BertConfig, WEIGHTS_NAME, CONFIG_NAME
 from pytorch_pretrained_bert.optimization import BertAdam, warmup_linear
+from tensorboardX import SummaryWriter
 
 from setup import InputFeatures
 import util
@@ -28,7 +29,7 @@ def get_train_args():
                         help="The output directory where the model checkpoints and predictions will be written.")
     parser.add_argument("--train_file", default='./data/preprocessed/nq-train-01-features', type=str, help="Preprocessed train feature pickle files.")
     parser.add_argument("--load_path", default=None, type=str, help="pytorch model dir to load from")
-
+    parser.add_argument("--save_dir", default='./save/', type=str, help="Base directory for saving information.")
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs", default=3.0, type=float,
@@ -58,6 +59,8 @@ def get_train_args():
 
 def main():
     args = get_train_args()
+    args.save_dir = util.get_save_dir(args.save_dir, args.bert_model, training=True)
+    tbx = SummaryWriter(args.save_dir)
     device, gpu_ids = util.get_available_devices()
 
     # Set random seed
@@ -148,30 +151,31 @@ def main():
     model.train()
     for _ in trange(int(args.num_train_epochs), desc="Epoch"):
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-                if len(gpu_ids) == 1:
-                    batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-                input_ids, input_mask, segment_ids, start_positions, end_positions = batch
-                loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
-                if len(gpu_ids) > 1:
-                    loss = loss.mean() # mean() to average on multi-gpu.
-                if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps
+            if len(gpu_ids) == 1:
+                batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
+            input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
+            if len(gpu_ids) > 1:
+                loss = loss.mean() # mean() to average on multi-gpu.
+            if args.gradient_accumulation_steps > 1:
+                loss = loss / args.gradient_accumulation_steps
 
-                logger.info(loss)
+            if args.fp16:
+                optimizer.backward(loss)
+            else:
+                loss.backward()
+            if (step + 1) % args.gradient_accumulation_steps == 0:
                 if args.fp16:
-                    optimizer.backward(loss)
-                else:
-                    loss.backward()
-                if (step + 1) % args.gradient_accumulation_steps == 0:
-                    if args.fp16:
-                        # modify learning rate with special warm up BERT uses
-                        # if args.fp16 is False, BertAdam is used and handles this automatically
-                        lr_this_step = args.learning_rate * warmup_linear(global_step/num_train_optimization_steps, args.warmup_proportion)
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr_this_step
-                    optimizer.step()
-                    optimizer.zero_grad()
-                    global_step += 1
+                    # modify learning rate with special warm up BERT uses
+                    # if args.fp16 is False, BertAdam is used and handles this automatically
+                    lr_this_step = args.learning_rate * warmup_linear(global_step/num_train_optimization_steps, args.warmup_proportion)
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr_this_step
+                optimizer.step()
+                optimizer.zero_grad()
+                tbx.add_scalar('train/NLL', loss.item(), global_step)
+                tbx.add_scalar('train/LR', optimizer.param_groups[0]['lr'], global_step)
+                global_step += 1
     
     # Save a trained model and the associated configuration
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self

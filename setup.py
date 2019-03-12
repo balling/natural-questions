@@ -323,7 +323,8 @@ def main():
         pool.join()
     features = [feature for split in features for feature in split]
     dataset = 'eval' if args.is_eval else 'train'
-    save(os.path.join(args.output_dir, 'nq-{}-features-{}-{}'.format(dataset, args.max_seq_length, args.max_query_length)), features, '{} data features'.format(dataset))
+    prefix = os.path.basename(input_paths[0]).split('.jsonl')[0]
+    save(os.path.join(args.output_dir, '{}-{}-features-{}-{}'.format(prefix, dataset, args.max_seq_length, args.max_query_length)), features, '{} data features'.format(dataset))
 
 if __name__ == '__main__':
     main()
