@@ -6,3 +6,8 @@ tmp
 out
 *.log
 *.pyc
+save/
+pytorch_model.bin
+bert_config.json
+predictions.json
+all_results

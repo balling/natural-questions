@@ -55,18 +55,19 @@ class BertForNQ(BertPreTrainedModel):
         self.bert = BertModel(config)
         # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.qa_outputs = nn.Linear(config.hidden_size, 3)
+        self.qa_outputs = nn.Linear(config.hidden_size, 2)
+        self.type_output = nn.Linear(config.hidden_size, 5)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None, ans_types=None):
-        sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        sequence_output, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         logits = self.qa_outputs(sequence_output)
-        start_logits, end_logits, type_logits = logits.split(1, dim=-1)
+        start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1)
-        type_logits = type_logits.squeeze(-1)
+        type_logits = self.type_output(pooled_output)
 
-        if ans_types is not None and start_positions is not None and end_positions is not None:
+        if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
             if len(ans_types.size()) > 1:
                 ans_types = ans_types.squeeze(-1)
@@ -75,15 +76,15 @@ class BertForNQ(BertPreTrainedModel):
             if len(end_positions.size()) > 1:
                 end_positions = end_positions.squeeze(-1)
             # sometimes the start/end positions are outside our model inputs, we ignore these terms
-            ignored_index = type_logits.size(1)
-            ans_types.clamp_(0, ignored_index)
+            ignored_index = start_logits.size(1)
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
 
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
-            type_loss = loss_fct(type_logits, ans_types)
             start_loss = loss_fct(start_logits, start_positions)
             end_loss = loss_fct(end_logits, end_positions)
+            type_loss_fct = CrossEntropyLoss()
+            type_loss = type_loss_fct(type_logits, ans_types)
             total_loss = type_loss + start_loss + end_loss
             return total_loss
         else:
