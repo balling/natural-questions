@@ -29,6 +29,7 @@ def get_setup_args():
                         help="The output directory where the processed examples and features will be written.")
     parser.add_argument("--input_path", default=None, type=str, required=True,
                         help="The natural questions dataset directory, e.g. ./data/natural_questions/v1.0/train/*.jsonl.gz")
+    parser.add_argument("--ins_num", default=10, type=int, help="The number of null instance to include for training examples.")
     parser.add_argument("--n_threads", default=8, type=int, help="The number of threads for processing.")
     parser.add_argument('--max_seq_length', type=int, default=512, help="max feature length")
     parser.add_argument('--max_query_length', type=int, default=30, help="max query length")
@@ -108,7 +109,7 @@ class InputFeatures(object):
         self.start_position = start_position
         self.end_position = end_position
 
-def read_nq_train_examples(filename):
+def read_nq_train_examples(filename, ins_num):
     """Read a natural question jsonl file into a list of NQExample."""
     examples = []
     with open(filename, "br") as fileobj:
@@ -122,7 +123,7 @@ def read_nq_train_examples(filename):
             long_answer_candidates = json_example["long_answer_candidates"]
             num_candidates = len(long_answer_candidates)
             if candidate_index == -1: # long answer does not exist
-                indexes = np.random.choice(range(num_candidates), min(10, num_candidates), replace=False)
+                indexes = np.random.choice(range(num_candidates), min(ins_num, num_candidates), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
                     candidate_tokens = json_example["document_tokens"][candidate["start_token"]:candidate["end_token"]]
@@ -159,7 +160,7 @@ def read_nq_train_examples(filename):
                         end_position=short_answer["end_token"]-long_answer["start_token"]))
                 else:
                     examples.append(NQExample(example_id, candidate_index, question_text, long_answer_tokens, long_answer["start_token"], long_answer["end_token"], ans_type=2))
-                indexes = np.random.choice(range(num_candidates-1), min(9, num_candidates-1), replace=False)
+                indexes = np.random.choice(range(num_candidates-1), min(ins_num-1, num_candidates-1), replace=False)
                 for idx in indexes:
                     candidate = long_answer_candidates[idx]
                     candidate_tokens = json_example["document_tokens"][candidate["start_token"]:candidate["end_token"]]
@@ -302,7 +303,7 @@ def process_one_split(tokenizer, args, input_path):
     if args.is_eval:
         examples = read_nq_eval_examples(input_path)
     else:
-        examples = read_nq_train_examples(input_path)
+        examples = read_nq_train_examples(input_path, args.ins_num)
     prefix = os.path.basename(input_path).split('.jsonl')[0]
     file_name = os.path.join(args.output_dir, '{}.example'.format(prefix))
     save(file_name, examples, 'examples from {} to {}'.format(input_path, file_name))
@@ -324,7 +325,7 @@ def main():
     features = [feature for split in features for feature in split]
     dataset = 'eval' if args.is_eval else 'train'
     prefix = os.path.basename(input_paths[0]).split('.jsonl')[0]
-    save(os.path.join(args.output_dir, '{}-{}-features-{}-{}'.format(prefix, dataset, args.max_seq_length, args.max_query_length)), features, '{} data features'.format(dataset))
+    save(os.path.join(args.output_dir, '{}-{}-features-{}-{}-{}'.format(prefix, dataset, args.max_seq_length, args.max_query_length, args.ins_num)), features, '{} data features'.format(dataset))
 
 if __name__ == '__main__':
     main()
