@@ -68,7 +68,7 @@ class BertForNQ(BertPreTrainedModel):
         end_logits = end_logits.squeeze(-1)
         type_logits = self.type_output(pooled_output)
 
-        mask = (1-attention_mask).type(torch.ByteTensor)
+        mask = 1-attention_mask.byte()
         start_logits.masked_fill_(mask, -1e30)
         end_logits.masked_fill_(mask, -1e30)
 
