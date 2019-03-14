@@ -3,7 +3,6 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 from pytorch_pretrained_bert.modeling import BertModel, BertPreTrainedModel#, BertConfig, WEIGHTS_NAME, CONFIG_NAME
-from util import masked_softmax
 
 class BertForNQ(BertPreTrainedModel):
     """BERT model for Question Answering (span extraction).
@@ -69,6 +68,10 @@ class BertForNQ(BertPreTrainedModel):
         end_logits = end_logits.squeeze(-1)
         type_logits = self.type_output(pooled_output)
 
+        mask = (1-attention_mask).type(torch.ByteTensor)
+        start_logits.masked_fill_(mask, -1e30)
+        end_logits.masked_fill_(mask, -1e30)
+
         if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
             if len(ans_types.size()) > 1:
@@ -82,16 +85,12 @@ class BertForNQ(BertPreTrainedModel):
             start_positions.clamp_(0, ignored_index)
             end_positions.clamp_(0, ignored_index)
 
-            # todo: extract to util
-            mask = attention_mask.type(torch.float32)
-            masked_start = mask * start_logits + (1 - mask) * -1e30
-            masked_end = mask * start_logits + (1 - mask) * -1e30
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
-            start_loss = loss_fct(masked_start, start_positions)
-            end_loss = loss_fct(masked_end, end_positions)
+            start_loss = loss_fct(start_logits, start_positions)
+            end_loss = loss_fct(end_logits, end_positions)
             type_loss_fct = CrossEntropyLoss()
             type_loss = type_loss_fct(type_logits, ans_types)
             total_loss = type_loss + start_loss + end_loss
             return total_loss
         else:
-            return masked_softmax(start_logits, attention_mask, dim=0), masked_softmax(end_logits, attention_mask, dim=0), F.softmax(type_logits, dim=0)
+            return F.softmax(start_logits, dim=0), F.softmax(end_logits, dim=0), F.softmax(type_logits, dim=0)
