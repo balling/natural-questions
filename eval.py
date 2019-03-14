@@ -96,7 +96,7 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
                     _PrelimPrediction(
                         start_index=start_index,
                         end_index=end_index,
-                        score=result.start_logits[start_index]+result.end_logits[end_index]))
+                        score=result.start_logits[start_index]+result.end_logits[end_index]-result.start_logits[0]-result.end_logits[0]))
         if len(prelim_predictions):
             pred = max(prelim_predictions, key=lambda x: x.score)
             short_start = long_start + \
