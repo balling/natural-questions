@@ -85,7 +85,7 @@ def main():
         output_config_file = os.path.join(args.load_path, CONFIG_NAME)
         config = BertConfig(output_config_file)
         model = BertForNQ(config)
-        model.load_state_dict(torch.load(output_model_file))
+        model.load_state_dict(torch.load(output_model_file), strict=False)
     else:
         model = BertForNQ.from_pretrained(args.bert_model,
                     cache_dir=os.path.join(str(PYTORCH_PRETRAINED_BERT_CACHE), 'distributed_{}'.format(-1)))
