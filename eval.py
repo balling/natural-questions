@@ -89,9 +89,11 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
                     continue
                 if end_index < start_index:
                     continue
-                if end_index-start_index >= context_len:
-                    logger.warn('same length as long answer')
+                if end_index-start_index > 50:
                     continue
+                # if end_index-start_index >= context_len:
+                #     logger.warn('same length as long answer')
+                #     continue
                 prelim_predictions.append(
                     _PrelimPrediction(
                         start_index=start_index,
