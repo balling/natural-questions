@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 from pytorch_pretrained_bert.modeling import BertModel, BertPreTrainedModel#, BertConfig, WEIGHTS_NAME, CONFIG_NAME
+import numpy as np
 
 class BertForNQ(BertPreTrainedModel):
     """BERT model for Question Answering (span extraction).
@@ -69,8 +70,8 @@ class BertForNQ(BertPreTrainedModel):
         type_logits = self.type_output(pooled_output)
 
         mask = 1-attention_mask.byte()
-        start_logits.masked_fill_(mask, -1e9)
-        end_logits.masked_fill_(mask, -1e9)
+        start_logits.masked_fill_(mask, -np.inf)
+        end_logits.masked_fill_(mask, -np.inf)
 
         if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
