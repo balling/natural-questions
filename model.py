@@ -25,14 +25,17 @@ class BertForNQ(BertPreTrainedModel):
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None, ans_types=None):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
 
+        self.type_rnn.flatten_parameters()
         type_rnn_out, (hn, cn) = self.type_rnn(sequence_output)
         hn = hn.permute(1,0,2).contiguous().view(hn.size(1), -1)
         type_logits = self.type_output(hn)
 
+        self.start_rnn.flatten_parameters()
         start_sequence = torch.cat([sequence_output, type_rnn_out], dim=-1)
         start_rnn_out, _ = self.start_rnn(start_sequence)
         start_logits = self.start_output(start_rnn_out).squeeze(-1)
 
+        self.end_rnn.flatten_parameters()
         end_sequence = torch.cat([start_sequence, start_rnn_out], dim=-1)
         end_rnn_out, _ = self.end_rnn(end_sequence)
         end_logits = self.end_output(end_rnn_out).squeeze(-1)
