@@ -151,7 +151,7 @@ def main():
     train_sampler = RandomSampler(train_data)
     train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
     model.train()
-    for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+    for epoch in trange(int(args.num_train_epochs), desc="Epoch"):
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
             if len(gpu_ids) == 1:
                 batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
@@ -178,6 +178,13 @@ def main():
                 tbx.add_scalar('train/NLL', loss.item(), global_step)
                 tbx.add_scalar('train/LR', optimizer.param_groups[0]['lr'], global_step)
                 global_step += 1
+        if epoch < int(args.num_train_epochs)-1:
+            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+            output_model_file = os.path.join(args.output_dir, '{}_{}'.format(WEIGHTS_NAME, epoch))
+            torch.save(model_to_save.state_dict(), output_model_file)
+            output_config_file = os.path.join(args.output_dir, '{}_{}'.format(CONFIG_NAME, epoch))
+            with open(output_config_file, 'w') as f:
+                f.write(model_to_save.config.to_json_string())
     
     # Save a trained model and the associated configuration
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
