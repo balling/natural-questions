@@ -12,13 +12,13 @@ class BertForNQ(BertPreTrainedModel):
         self.bert = BertModel(config)
         rnn_hidden_size=int(config.hidden_size/2)
         self.type_rnn = torch.nn.GRU(
-            config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+            config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
         self.type_output = nn.Linear(config.hidden_size, 5)
         self.start_rnn = torch.nn.GRU(
-            2*config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+            2*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
         self.start_output = nn.Linear(config.hidden_size, 1)
         self.end_rnn = torch.nn.GRU(
-            3*config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+            3*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
         self.end_output = nn.Linear(config.hidden_size, 1)
         self.apply(self.init_bert_weights)
 
