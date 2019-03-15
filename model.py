@@ -10,23 +10,23 @@ class BertForNQ(BertPreTrainedModel):
     def __init__(self, config):
         super(BertForNQ, self).__init__(config)
         self.bert = BertModel(config)
-
-        self.type_rnn = torch.nn.LSTM(
-            config.hidden_size, config.hidden_size, batch_first=True, bidirectional=True)
-        self.type_output = nn.Linear(2*config.hidden_size, 5)
-        self.start_rnn = torch.nn.LSTM(
-            3*config.hidden_size, config.hidden_size, batch_first=True, bidirectional=True)
-        self.start_output = nn.Linear(2*config.hidden_size, 1)
-        self.end_rnn = torch.nn.LSTM(
-            5*config.hidden_size, config.hidden_size, batch_first=True, bidirectional=True)
-        self.end_output = nn.Linear(2*config.hidden_size, 1)
+        rnn_hidden_size=int(config.hidden_size/2)
+        self.type_rnn = torch.nn.GRU(
+            config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+        self.type_output = nn.Linear(config.hidden_size, 5)
+        self.start_rnn = torch.nn.GRU(
+            2*config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+        self.start_output = nn.Linear(config.hidden_size, 1)
+        self.end_rnn = torch.nn.GRU(
+            3*config.hidden_size, rnn_hidden_size, dropout=config.hidden_dropout_prob, batch_first=True, bidirectional=True)
+        self.end_output = nn.Linear(config.hidden_size, 1)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None, ans_types=None):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
 
         self.type_rnn.flatten_parameters()
-        type_rnn_out, (hn, cn) = self.type_rnn(sequence_output)
+        type_rnn_out, hn = self.type_rnn(sequence_output)
         hn = hn.permute(1,0,2).contiguous().view(hn.size(1), -1)
         type_logits = self.type_output(hn)
 
