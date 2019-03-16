@@ -11,34 +11,34 @@ class BertForNQ(BertPreTrainedModel):
         super(BertForNQ, self).__init__(config)
         self.bert = BertModel(config)
         rnn_hidden_size=int(config.hidden_size/2)
-        self.type_rnn = torch.nn.GRU(
-            config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
-        self.type_output = nn.Linear(config.hidden_size, 5)
         self.start_rnn = torch.nn.GRU(
-            2*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
+            config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
         self.start_output = nn.Linear(config.hidden_size, 1)
         self.end_rnn = torch.nn.GRU(
-            3*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
+            2*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
         self.end_output = nn.Linear(config.hidden_size, 1)
+        self.type_rnn = torch.nn.GRU(
+            3*config.hidden_size, rnn_hidden_size, batch_first=True, bidirectional=True)
+        self.type_output = nn.Linear(config.hidden_size, 5)
         self.apply(self.init_bert_weights)
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, start_positions=None, end_positions=None, ans_types=None):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
 
-        self.type_rnn.flatten_parameters()
-        type_rnn_out, hn = self.type_rnn(sequence_output)
-        hn = hn.permute(1,0,2).contiguous().view(hn.size(1), -1)
-        type_logits = self.type_output(hn)
-
         self.start_rnn.flatten_parameters()
-        start_sequence = torch.cat([sequence_output, type_rnn_out], dim=-1)
-        start_rnn_out, _ = self.start_rnn(start_sequence)
+        start_rnn_out, _ = self.start_rnn(sequence_output)
         start_logits = self.start_output(start_rnn_out).squeeze(-1)
 
         self.end_rnn.flatten_parameters()
-        end_sequence = torch.cat([start_sequence, start_rnn_out], dim=-1)
+        end_sequence = torch.cat([sequence_output, start_rnn_out], dim=-1)
         end_rnn_out, _ = self.end_rnn(end_sequence)
         end_logits = self.end_output(end_rnn_out).squeeze(-1)
+
+        self.type_rnn.flatten_parameters()
+        type_sequence = torch.cat([end_sequence, end_rnn_out], dim=-1)
+        type_rnn_out, hn = self.type_rnn(type_sequence)
+        hn = hn.permute(1,0,2).contiguous().view(hn.size(1), -1)
+        type_logits = self.type_output(hn)
 
         if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
