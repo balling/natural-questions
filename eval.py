@@ -192,37 +192,11 @@ def get_train_args():
 
 def main():
     args = get_train_args()
-    device, gpu_ids = util.get_available_devices()
-
-    # Set random seed
-    logger.info('Using random seed {}...'.format(args.seed))
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
 
     # if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
     #     raise ValueError("Output directory () already exists and is not empty.")
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-
-    if args.load_squad_path:
-        output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
-        output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
-        config = BertConfig(output_config_file)
-        model = BertForNQ(config)
-        model.load_state_dict(torch.load(output_model_file))
-        # model.load_state_dict(torch.load(output_model_file, map_location='cpu')) # for local
-    else:
-        model = BertForNQ.from_pretrained(args.bert_model,
-                                          cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
-    logger.info(model.config)
-    model.to(device)
-    if len(gpu_ids) > 1:
-        model = torch.nn.DataParallel(model)
-
-    if args.load_path:
-        model, step = util.load_model(model, args.load_path, gpu_ids)
 
     with open(args.predict_file, "rb") as reader:
         eval_features = pickle.load(reader)
@@ -231,6 +205,33 @@ def main():
         with open(os.path.join(args.load_result_path, "all_results"), "rb") as file:
             all_results = pickle.load(file)
     else:
+        device, gpu_ids = util.get_available_devices()
+
+        # Set random seed
+        logger.info('Using random seed {}...'.format(args.seed))
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed_all(args.seed)
+
+        if args.load_squad_path:
+            output_model_file = os.path.join(args.load_squad_path, WEIGHTS_NAME)
+            output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
+            config = BertConfig(output_config_file)
+            model = BertForNQ(config)
+            model.load_state_dict(torch.load(output_model_file))
+            # model.load_state_dict(torch.load(output_model_file, map_location='cpu')) # for local
+        else:
+            model = BertForNQ.from_pretrained(args.bert_model,
+                                            cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
+        logger.info(model.config)
+        model.to(device)
+        if len(gpu_ids) > 1:
+            model = torch.nn.DataParallel(model)
+
+        if args.load_path:
+            model, step = util.load_model(model, args.load_path, gpu_ids)
+
         logger.info("***** Running predictions *****")
         logger.info("  Num orig examples = %d", len(
             set(f.example_id for f in eval_features)))
