@@ -344,7 +344,7 @@ def main():
     features = [feature for split in features for feature in split]
     dataset = 'eval' if args.is_eval else 'train'
     prefix = os.path.basename(input_paths[0]).split('.jsonl')[0]
-    filename = os.path.join(args.output_dir, '{}-{}-features-{}-{}-{}'.format(prefix, dataset, args.max_seq_length, args.max_query_length, args.ins_num))
+    filename = os.path.join(args.output_dir, '{}-{}-tf-features-{}-{}-{}'.format(prefix, dataset, args.max_seq_length, args.max_query_length, args.ins_num))
     save(filename, features, '{} data features'.format(dataset))
     logger.info('Saved to {}'.format(filename))
 
