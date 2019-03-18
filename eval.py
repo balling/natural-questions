@@ -44,7 +44,7 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
 
     for (example_index, features) in example_index_to_features.items():
         long_score, candidate_id = max(
-            (max(result.type_logits[1:]), c_id) for c_id, result in example_index_to_results[example_index].items()
+            (1-result.type_logits[0], c_id) for c_id, result in example_index_to_results[example_index].items()
         )
         candidate = features[candidate_id]
         long_start = candidate.original_start
@@ -87,24 +87,24 @@ def write_predictions(all_features, all_results, output_prediction_file, n_best_
                     continue
                 if end_index not in candidate.token_to_orig_map:
                     continue
-                if end_index < start_index:
+                start = candidate.token_to_orig_map[start_index]
+                end = candidate.token_to_orig_map[end_index]
+                if end <= start:
                     continue
-                if end_index-start_index > 50:
+                if end-start > 50:
                     continue
                 # if end_index-start_index >= context_len:
                 #     logger.warn('same length as long answer')
                 #     continue
                 prelim_predictions.append(
                     _PrelimPrediction(
-                        start_index=start_index,
-                        end_index=end_index,
+                        start_index=start,
+                        end_index=end,
                         score=result.start_logits[start_index]+result.end_logits[end_index]-result.start_logits[0]-result.end_logits[0]))
         if len(prelim_predictions):
             pred = max(prelim_predictions, key=lambda x: x.score)
-            short_start = long_start + \
-                candidate.token_to_orig_map[pred.start_index]
-            short_end = long_start + \
-                candidate.token_to_orig_map[pred.end_index]+1
+            short_start = long_start + pred.start_index
+            short_end = long_start + pred.end_index
             predictions.append({
                 'example_id': example_index,
                 'long_answer': {
@@ -161,6 +161,8 @@ def get_train_args():
                         help="Torch checkpoint to load from")
     parser.add_argument("--load_squad_path", default=None,
                         type=str, help="SQuAD pytorch model dir to load from")
+    parser.add_argument("--load_result_path", default=None,
+                        type=str, help="previously saved all_results")
 
     parser.add_argument("--n_best_size", default=6, type=int,
                         help="number of candidates to consider during evaluation")
@@ -225,50 +227,54 @@ def main():
     with open(args.predict_file, "rb") as reader:
         eval_features = pickle.load(reader)
 
-    logger.info("***** Running predictions *****")
-    logger.info("  Num orig examples = %d", len(
-        set(f.example_id for f in eval_features)))
-    logger.info("  Num examples = %d", len(eval_features))
-    logger.info("  Batch size = %d", args.predict_batch_size)
+    if args.load_result_path:
+        with open(os.path.join(args.load_result_path, "all_results"), "rb") as file:
+            all_results = pickle.load(file)
+    else:
+        logger.info("***** Running predictions *****")
+        logger.info("  Num orig examples = %d", len(
+            set(f.example_id for f in eval_features)))
+        logger.info("  Num examples = %d", len(eval_features))
+        logger.info("  Batch size = %d", args.predict_batch_size)
 
-    all_input_ids = torch.tensor(
-        [f.input_ids for f in eval_features], dtype=torch.long)
-    all_input_mask = torch.tensor(
-        [f.input_mask for f in eval_features], dtype=torch.long)
-    all_segment_ids = torch.tensor(
-        [f.segment_ids for f in eval_features], dtype=torch.long)
-    all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-    eval_data = TensorDataset(
-        all_input_ids, all_input_mask, all_segment_ids, all_example_index)
-    # Run prediction for full data
-    eval_sampler = SequentialSampler(eval_data)
-    eval_dataloader = DataLoader(
-        eval_data, sampler=eval_sampler, batch_size=args.predict_batch_size)
+        all_input_ids = torch.tensor(
+            [f.input_ids for f in eval_features], dtype=torch.long)
+        all_input_mask = torch.tensor(
+            [f.input_mask for f in eval_features], dtype=torch.long)
+        all_segment_ids = torch.tensor(
+            [f.segment_ids for f in eval_features], dtype=torch.long)
+        all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+        eval_data = TensorDataset(
+            all_input_ids, all_input_mask, all_segment_ids, all_example_index)
+        # Run prediction for full data
+        eval_sampler = SequentialSampler(eval_data)
+        eval_dataloader = DataLoader(
+            eval_data, sampler=eval_sampler, batch_size=args.predict_batch_size)
 
-    model.eval()
-    all_results = []
-    logger.info("Start evaluating")
-    for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader, desc="Evaluating"):
-        if len(all_results) % 1000 == 0:
-            logger.info("Processing example: %d" % (len(all_results)))
-        input_ids = input_ids.to(device)
-        input_mask = input_mask.to(device)
-        segment_ids = segment_ids.to(device)
-        with torch.no_grad():
-            batch_start_logits, batch_end_logits, batch_type_logits = model(
-                input_ids, segment_ids, input_mask)
-        for i, example_index in enumerate(example_indices):
-            start_logits = batch_start_logits[i].detach().cpu().tolist()
-            end_logits = batch_end_logits[i].detach().cpu().tolist()
-            type_logits = batch_type_logits[i].detach().cpu().tolist()
-            eval_feature = eval_features[example_index.item()]
-            all_results.append(RawResult(example_id=eval_feature.example_id,
-                                         candidate_id=eval_feature.candidate_id,
-                                         start_logits=start_logits,
-                                         end_logits=end_logits,
-                                         type_logits=type_logits))
-    with open(os.path.join(args.output_dir, "all_results"), "wb") as file:
-        pickle.dump(all_results, file)
+        model.eval()
+        all_results = []
+        logger.info("Start evaluating")
+        for input_ids, input_mask, segment_ids, example_indices in tqdm(eval_dataloader, desc="Evaluating"):
+            if len(all_results) % 1000 == 0:
+                logger.info("Processing example: %d" % (len(all_results)))
+            input_ids = input_ids.to(device)
+            input_mask = input_mask.to(device)
+            segment_ids = segment_ids.to(device)
+            with torch.no_grad():
+                batch_start_logits, batch_end_logits, batch_type_logits = model(
+                    input_ids, segment_ids, input_mask)
+            for i, example_index in enumerate(example_indices):
+                start_logits = batch_start_logits[i].detach().cpu().tolist()
+                end_logits = batch_end_logits[i].detach().cpu().tolist()
+                type_logits = batch_type_logits[i].detach().cpu().tolist()
+                eval_feature = eval_features[example_index.item()]
+                all_results.append(RawResult(example_id=eval_feature.example_id,
+                                            candidate_id=eval_feature.candidate_id,
+                                            start_logits=start_logits,
+                                            end_logits=end_logits,
+                                            type_logits=type_logits))
+        with open(os.path.join(args.output_dir, "all_results"), "wb") as file:
+            pickle.dump(all_results, file)
     output_prediction_file = os.path.join(args.output_dir, "predictions.json")
     write_predictions(eval_features, all_results,
                       output_prediction_file, args.n_best_size)
