@@ -178,16 +178,16 @@ def main():
                 tbx.add_scalar('train/NLL', loss.item(), global_step)
                 tbx.add_scalar('train/LR', optimizer.param_groups[0]['lr'], global_step)
                 global_step += 1
-        if epoch < int(args.num_train_epochs)-1:
-            model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-            out_dir = os.path.join(args.output_dir, str(epoch))
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-            output_model_file = os.path.join(out_dir, WEIGHTS_NAME)
-            torch.save(model_to_save.state_dict(), output_model_file)
-            output_config_file = os.path.join(out_dir, CONFIG_NAME)
-            with open(output_config_file, 'w') as f:
-                f.write(model_to_save.config.to_json_string())
+                if global_step % 5000 == 0:
+                    model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
+                    out_dir = os.path.join(args.output_dir, str(global_step//5000))
+                    if not os.path.exists(out_dir):
+                        os.makedirs(out_dir)
+                    output_model_file = os.path.join(out_dir, WEIGHTS_NAME)
+                    torch.save(model_to_save.state_dict(), output_model_file)
+                    output_config_file = os.path.join(out_dir, CONFIG_NAME)
+                    with open(output_config_file, 'w') as f:
+                        f.write(model_to_save.config.to_json_string())
     
     # Save a trained model and the associated configuration
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
