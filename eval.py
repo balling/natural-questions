@@ -194,7 +194,7 @@ def get_train_args():
 
 def main():
     args = get_train_args()
-
+    logger.info(args)
     # if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
     #     raise ValueError("Output directory () already exists and is not empty.")
     if not os.path.exists(args.output_dir):
@@ -212,6 +212,8 @@ def main():
             gpu_ids = []
         else:
             device, gpu_ids = util.get_available_devices()
+        
+        logger.info("device: {} n_gpu: {}".format(device, len(gpu_ids)))
 
         # Set random seed
         logger.info('Using random seed {}...'.format(args.seed))
