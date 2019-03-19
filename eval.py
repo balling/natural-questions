@@ -177,6 +177,8 @@ def get_train_args():
     parser.add_argument("--warmup_proportion", default=0.1, type=float,
                         help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%% "
                         "of training.")
+    parser.add_argument("--no_cuda", default=False,
+                        help="Whether not to use CUDA when available")
 
     parser.add_argument('--seed',
                         type=int,
@@ -205,7 +207,11 @@ def main():
         with open(os.path.join(args.load_result_path, "all_results"), "rb") as file:
             all_results = pickle.load(file)
     else:
-        device, gpu_ids = util.get_available_devices()
+        if args.no_cuda:
+            device = torch.device('cpu')
+            gpu_ids = []
+        else:
+            device, gpu_ids = util.get_available_devices()
 
         # Set random seed
         logger.info('Using random seed {}...'.format(args.seed))
@@ -219,8 +225,7 @@ def main():
             output_config_file = os.path.join(args.load_squad_path, CONFIG_NAME)
             config = BertConfig(output_config_file)
             model = BertForNQ(config)
-            model.load_state_dict(torch.load(output_model_file))
-            # model.load_state_dict(torch.load(output_model_file, map_location='cpu')) # for local
+            model.load_state_dict(torch.load(output_model_file, map_location=device))
         else:
             model = BertForNQ.from_pretrained(args.bert_model,
                                             cache_dir=os.path.join(PYTORCH_PRETRAINED_BERT_CACHE, 'distributed_{}'.format(-1)))
